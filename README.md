@@ -94,6 +94,19 @@ roster:
 Every post stores all of its hashtags, not just campaign ones, so a campaign launched next
 month can claim historical posts without spending any API calls.
 
+## Trying it
+
+There is no data-fetching command yet, because the provider adapters are not built. To see
+the parts that do work, run the demo. It uses synthetic creators and an in-memory database,
+makes no network calls, and writes no files.
+
+```bash
+.venv/Scripts/python.exe demo.py
+```
+
+It walks through campaign loading, tier classification, hashtag extraction and attribution,
+two deduplicated ingestion runs, and the refresh schedule.
+
 ## Tests
 
 ```bash
