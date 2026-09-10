@@ -1,0 +1,8 @@
+# Influencers under contract. The roster crawl polls each handle's recent posts and keeps
+# any that mention the brand or carry a campaign hashtag. This catches caption-only
+# mentions, which never appear in the tagged-posts feed.
+roster:
+  - handle: example_creator_one
+    note: "Spring Glow, 3-post package"
+  - handle: example_creator_two
+    note: "Always-on ambassador"

@@ -1,0 +1,31 @@
+[project]
+name = "clipping"
+version = "0.1.0"
+description = "Instagram influencer clipping and campaign tracking for @iunik_official"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "tenacity>=8.3",
+    "PyYAML>=6.0",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2", "respx>=0.21"]
+sheets = ["gspread>=6.1", "google-auth>=2.30"]
+
+[project.scripts]
+clipping = "clipping.cli:app"
+
+[tool.setuptools]
+# config/ holds YAML, not Python. Name the package explicitly so
+# setuptools flat-layout auto-discovery does not try to import it.
+packages = ["clipping"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,16 @@
+# Campaign definitions. A post is attributed to a campaign when it carries one of the
+# campaign's hashtags AND its post date falls inside the window. Highest priority wins ties.
+campaigns:
+  - id: spring_glow_2026
+    name: "Spring Glow Launch"
+    hashtags: ["iunikspringglow", "이유닉스프링", "iunikpartner"]
+    start: 2026-03-01
+    end: 2026-04-30
+    priority: 10
+
+  - id: always_on_2026
+    name: "Always-On Ambassadors"
+    hashtags: ["iunik", "iunikofficial"]
+    start: 2026-01-01
+    end: 2026-12-31
+    priority: 1
