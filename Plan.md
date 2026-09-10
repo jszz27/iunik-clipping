@@ -30,12 +30,11 @@ greenfield build with no existing code to reuse.
 
 ## Two concerns to state up front
 
-**1. The two API keys supplied are the same string, and they were pasted into a chat.**
-The key ending `…3912` was given twice. That means there is no failover capacity and no quota
-doubling. Treat this key as compromised, rotate it in the RapidAPI dashboard, and subscribe
-a second RapidAPI account for a genuinely distinct second key. The code will read an
-arbitrary number of keys from `.env`, so adding the second one later is a one-line config
-change. `.env` will be gitignored from the first commit.
+**1. Two identical API keys give no redundancy.**
+Listing the same key twice buys neither failover capacity nor extra quota. The two keys must
+come from separate RapidAPI accounts to be worth anything. The code reads an arbitrary number
+of keys from `.env` and collapses duplicates, so adding a genuinely distinct second key later
+is a one-line config change. `.env` is gitignored from the first commit.
 
 **2. Caption-only @mentions do not appear in the tagged-posts feed.**
 Instagram's tagged feed contains posts where the brand was tagged in the media or added as
@@ -331,9 +330,9 @@ prove campaign ROI.
 # Addendum — Endpoint research, verified 2026-09-10
 
 The provider recommendation above was written from documentation. It has now been tested
-against the live RapidAPI gateway using the supplied key. Three findings change the picture.
+against the live RapidAPI gateway. Three findings change the picture.
 
-## Finding 1 — the key has no active subscription
+## Finding 1 — a key alone grants no access
 
 Every Instagram API tested returned the same response:
 
@@ -347,7 +346,7 @@ RapidAPI page, even on a free tier. Nothing in this project can fetch a single p
 that is done.
 
 A deliberately invalid key returns the **identical** 403, so this response cannot confirm
-whether the supplied key is valid. That question stays open until a subscription exists.
+whether a given key is valid. That question stays open until a subscription exists.
 
 ## Finding 2 — provider churn is real and already visible
 
@@ -439,7 +438,8 @@ against this number rather than a free tier.
 
 1. Subscribe to **Instagram Scraper API** on RapidAPI, free tier is enough to validate.
 2. Subscribe to **Instagram Scraper 2025** as the independent fallback.
-3. Rotate the exposed key and issue a genuinely distinct second one.
+3. Issue two genuinely distinct keys, one per RapidAPI account, so rotation has somewhere
+   to rotate to.
 4. Run `doctor` (step 2) to confirm the four paths and record real response shapes as test
    fixtures.
 
