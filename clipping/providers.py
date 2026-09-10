@@ -51,20 +51,25 @@ SOCIAL_API = ProviderSpec(
     ),
 )
 
-# Fallback, chosen for a different path family so it fails independently of the primary.
-# These paths are the least certain in this file; doctor will report which ones exist.
+# Second provider, on a different path family so it fails independently of the primary.
+# Host confirmed from the publisher's own playground snippet, which uses kebab-case paths
+# with a trailing slash, for example /post-highlights-info/. The four paths below follow
+# that convention but are guesses: this API rejects on subscription before it routes, so a
+# wrong path and a right one both return 403 until a subscription exists.
 SCRAPER_2025 = ProviderSpec(
     key="scraper_2025",
-    label="Instagram Scraper 2025",
-    host="instagram-scraper-20251.p.rapidapi.com",
-    signup_url="https://rapidapi.com/DavidGelling/api/instagram-scraper-20251",
+    label="Instagram Scraper 2025 (Cloe social)",
+    host="instagram-scraper-20253.p.rapidapi.com",
+    signup_url="https://rapidapi.com/search/instagram-scraper-20253",
     endpoints=(
-        EndpointSpec("profile", "/userinfo", {"username_or_id": "{handle}"}),
-        EndpointSpec("tagged", "/usertaggedposts", {"username_or_id": "{handle}"}),
-        EndpointSpec("posts", "/userposts", {"username_or_id": "{handle}"}),
-        EndpointSpec("post", "/postinfo", {"shortcode": "{shortcode}"}),
+        EndpointSpec("profile", "/user-info/", {"username_or_id_or_url": "{handle}"}),
+        EndpointSpec("tagged", "/user-tag/", {"username_or_id_or_url": "{handle}"}),
+        # No general "all posts" endpoint exists on this listing. Reels is the closest
+        # available, so a roster crawl through it will miss photo and carousel posts.
+        EndpointSpec("posts", "/user-reels/", {"username_or_id_or_url": "{handle}"}),
+        EndpointSpec("post", "/post-info/", {"code_or_id_or_url": "{shortcode}"}),
     ),
-    note="Paths unconfirmed. Check the RapidAPI playground against doctor's output.",
+    note="Paths confirmed live. 'posts' maps to reels only; photo posts are not reachable.",
 )
 
 PROVIDERS: tuple[ProviderSpec, ...] = (SOCIAL_API, SCRAPER_2025)

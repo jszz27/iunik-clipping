@@ -8,3 +8,8 @@ service_account.json
 .pytest_cache/
 *.egg-info/
 .claude/
+
+# Recorded API responses contain real creator handles, names and captions.
+# The repo is public; do not publish other people's data.
+tests/fixtures/
+img/
