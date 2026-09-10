@@ -94,6 +94,27 @@ roster:
 Every post stores all of its hashtags, not just campaign ones, so a campaign launched next
 month can claim historical posts without spending any API calls.
 
+## Checking access
+
+`doctor` reports configuration health and probes every declared endpoint, saying per
+endpoint whether it answered and what to do if it did not.
+
+```bash
+.venv/Scripts/python.exe -m clipping doctor --handle iunik_official
+.venv/Scripts/python.exe -m clipping doctor --skip-network   # config only, no API calls
+```
+
+It distinguishes failures that need opposite responses: an unpaid subscription, a delisted
+API, a wrong path, a rejected key, and genuine throttling. It exits non-zero while no
+provider can fetch both tagged posts and profiles.
+
+Once a subscription is live, `--save-fixtures` records each successful response to
+`tests/fixtures/`, which is what the adapters get written against.
+
+```bash
+.venv/Scripts/python.exe -m clipping doctor --handle iunik_official --save-fixtures
+```
+
 ## Trying it
 
 There is no data-fetching command yet, because the provider adapters are not built. To see
