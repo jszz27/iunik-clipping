@@ -102,4 +102,4 @@ month can claim historical posts without spending any API calls.
 
 ## Licence
 
-Not yet chosen. Treat as all rights reserved until one is added.
+MIT. See [LICENSE](LICENSE).
