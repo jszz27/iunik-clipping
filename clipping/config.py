@@ -31,6 +31,7 @@ class Settings:
     db_path: str
     google_sheet_id: str | None
     google_service_account_json: str | None
+    google_oauth_client_json: str | None
     duplicate_keys_dropped: int
 
 
@@ -87,6 +88,7 @@ def load_settings(
         db_path=env.get("DB_PATH", "clipping.db"),
         google_sheet_id=env.get("GOOGLE_SHEET_ID") or None,
         google_service_account_json=env.get("GOOGLE_SERVICE_ACCOUNT_JSON") or None,
+        google_oauth_client_json=env.get("GOOGLE_OAUTH_CLIENT_JSON") or None,
         duplicate_keys_dropped=len(raw_keys) - len(keys),
     )
 

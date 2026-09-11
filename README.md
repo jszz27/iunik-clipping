@@ -110,17 +110,24 @@ creator costs one call each, so the run button says what it will spend before it
 
 ### Google Sheets export
 
-Three things are needed, all in `.env`:
+`GOOGLE_SHEET_ID` is always required: the long id in the sheet's URL between `/d/` and
+`/edit`. Then pick one way to authenticate.
 
-1. `GOOGLE_SHEET_ID`, the long id in the sheet's URL between `/d/` and `/edit`.
-2. `GOOGLE_SERVICE_ACCOUNT_JSON`, a path to a service account key downloaded from a
-   Google Cloud project with the Sheets API enabled.
-3. The sheet shared, with Editor access, with the service account's own email address.
+**OAuth, signing in as yourself.** Set `GOOGLE_OAUTH_CLIENT_JSON` to an OAuth client ID
+file of type Desktop app, downloaded from APIs & Services then Credentials. The first
+export opens a browser to sign in, and the token is cached in `google_token.json`. No
+sharing step, because it reaches any sheet you can already open.
 
-That third step is the one people miss. The address is inside the JSON key file as
-`client_email`, and the dashboard shows it. Without it every export fails.
+Use this if your organisation enforces `iam.disableServiceAccountKeyCreation`, which
+blocks service account key downloads entirely. It is also what Google recommends.
 
-Export replaces two tabs, Posts and Campaigns, leaving anything else in the sheet alone.
+**Service account, a robot identity.** Set `GOOGLE_SERVICE_ACCOUNT_JSON` to a downloaded
+key file, then share the sheet with the service account's own email address and give it
+Editor access. That sharing step is the one people miss; the address is the `client_email`
+field inside the key file, and the dashboard displays it.
+
+Either way, enable the Google Sheets API in the Cloud project first. Export replaces two
+tabs, Posts and Campaigns, leaving anything else in the sheet alone.
 
 ## Checking access
 

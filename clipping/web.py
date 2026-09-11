@@ -100,7 +100,8 @@ def export() -> JSONResponse:
     conn = store.connect(settings.db_path)
     try:
         summary = sheets.push(conn, settings.google_sheet_id or "",
-                              settings.google_service_account_json or "")
+                              settings.google_service_account_json or "",
+                              settings.google_oauth_client_json)
     except sheets.SheetsError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     finally:

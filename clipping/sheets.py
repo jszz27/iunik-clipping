@@ -29,7 +29,17 @@ def service_account_email(credentials_path: str) -> str | None:
         return None
 
 
-def _client(credentials_path: str):
+TOKEN_FILE = "google_token.json"
+
+
+def _client(credentials_path: str, oauth_client_path: str | None = None):
+    """Authenticate, preferring OAuth when configured.
+
+    Many Google Workspace organisations enforce iam.disableServiceAccountKeyCreation,
+    which makes downloading a service account key impossible. OAuth signs in as the
+    person instead, needs no downloadable key, and reaches any sheet they can already
+    open, so no sharing step is required.
+    """
     try:
         import gspread
     except ImportError as exc:  # pragma: no cover - depends on the optional extra
@@ -37,11 +47,30 @@ def _client(credentials_path: str):
             'Google Sheets support is not installed. Run: pip install -e ".[sheets]"'
         ) from exc
 
+    if oauth_client_path:
+        path = Path(oauth_client_path)
+        if not path.exists():
+            raise SheetsError(
+                f"OAuth client file not found at '{path}'. In Google Cloud, open APIs & "
+                "Services then Credentials, create an OAuth client ID of type Desktop "
+                "app, download the JSON, and point GOOGLE_OAUTH_CLIENT_JSON at it."
+            )
+        try:
+            return gspread.oauth(
+                credentials_filename=str(path), authorized_user_filename=TOKEN_FILE
+            )
+        except Exception as exc:
+            raise SheetsError(
+                f"OAuth sign-in failed: {exc}. Delete {TOKEN_FILE} and try again to "
+                "force a fresh sign-in."
+            ) from exc
+
     path = Path(credentials_path or "")
     if not path.exists():
         raise SheetsError(
-            f"Service account file not found at '{path}'. Download the JSON key from "
-            "your Google Cloud project and point GOOGLE_SERVICE_ACCOUNT_JSON at it."
+            f"No Google credentials found. Either set GOOGLE_OAUTH_CLIENT_JSON to an "
+            f"OAuth client file, or place a service account key at '{path}'. If your "
+            "organisation blocks service account keys, use the OAuth option."
         )
     try:
         return gspread.service_account(filename=str(path))
@@ -61,20 +90,22 @@ def _replace_tab(spreadsheet, title: str, header: tuple, rows: list[list]) -> No
     worksheet.freeze(rows=1)
 
 
-def push(conn, sheet_id: str, credentials_path: str) -> dict:
+def push(conn, sheet_id: str, credentials_path: str,
+         oauth_client_path: str | None = None) -> dict:
     """Replace the Posts and Campaigns tabs with current data. Returns a short summary."""
     if not sheet_id:
         raise SheetsError("No sheet configured. Set GOOGLE_SHEET_ID in .env.")
 
-    client = _client(credentials_path)
+    client = _client(credentials_path, oauth_client_path)
     try:
         spreadsheet = client.open_by_key(sheet_id)
     except Exception as exc:
-        email = service_account_email(credentials_path) or "the service account"
-        raise SheetsError(
-            f"Could not open sheet {sheet_id}: {exc}. Share the sheet with {email} "
-            "and give it Editor access."
-        ) from exc
+        if oauth_client_path:
+            hint = "Check the sheet id, and that the account you signed in as can open it."
+        else:
+            email = service_account_email(credentials_path) or "the service account"
+            hint = f"Share the sheet with {email} and give it Editor access."
+        raise SheetsError(f"Could not open sheet {sheet_id}: {exc}. {hint}") from exc
 
     posts = store.report_rows(conn)
     campaigns = store.campaign_totals(conn)

@@ -13,3 +13,5 @@ service_account.json
 # The repo is public; do not publish other people's data.
 tests/fixtures/
 img/
+google_token.json
+oauth_client.json
