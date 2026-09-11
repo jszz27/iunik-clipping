@@ -8,7 +8,7 @@ import typer
 from clipping import doctor as doctor_mod
 from clipping import pipeline, store
 from clipping.config import ConfigError, load_campaigns, load_roster, load_settings
-from clipping.providers import PROVIDERS, by_key
+from clipping.providers import BATCH_SIZE, PROVIDERS, by_key
 
 app = typer.Typer(add_completion=False, help="Instagram influencer clipping and tracking.")
 
@@ -157,14 +157,36 @@ def serve(
     uvicorn.run("clipping.web:app", host=host, port=port, log_level="warning")
 
 
+def _resolve_target(target: str | None, settings) -> str:
+    """Target account, in priority order: flag, then BRAND_HANDLE, then a prompt.
+
+    Three routes because this runs three ways: typed by hand, driven by a scheduler with
+    no terminal attached, and from the dashboard.
+    """
+    chosen = target or settings.brand_handle
+    if not chosen:
+        chosen = typer.prompt("Target Instagram account (without @)")
+    return chosen.lstrip("@").strip().casefold()
+
+
 @app.command()
 def run(
-    provider: str = typer.Option("scraper_2025", help="Provider key to use."),
+    target: str = typer.Option(
+        None, "--target", "-t",
+        help="Instagram account to track. Defaults to BRAND_HANDLE, else prompts.",
+    ),
+    provider: str = typer.Option("scraper_20251", help="Provider key to use."),
     fixture: Path = typer.Option(
         None, help="Replay a saved tagged response instead of calling the API."
     ),
     max_profiles: int = typer.Option(
         5, help="Cap profile lookups. Each one costs an API call."
+    ),
+    batch_size: int = typer.Option(
+        BATCH_SIZE, help="Tagged posts to process per execution."
+    ),
+    cursor: str = typer.Option(
+        None, help="pagination_token from a previous run, to fetch the next batch."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Do not write to the database."),
 ) -> None:
@@ -176,17 +198,26 @@ def run(
         typer.echo(f"Unknown provider '{provider}'.")
         raise typer.Exit(1)
 
+    chosen = _resolve_target(target, settings)
+    typer.echo(f"Target: @{chosen}   provider: {spec.label}   batch size: {batch_size}")
     if fixture:
         typer.echo(f"Replaying {fixture}, no API call spent for the tagged page.")
 
-    result = pipeline.ingest(
-        settings, campaigns, spec,
-        fixture=str(fixture) if fixture else None,
-        max_profiles=max_profiles,
-        dry_run=dry_run,
-    )
+    try:
+        result = pipeline.ingest(
+            settings, campaigns, spec,
+            target=chosen,
+            fixture=str(fixture) if fixture else None,
+            max_profiles=max_profiles,
+            batch_size=batch_size,
+            cursor=cursor,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(1)
 
-    _rule(f"Discovered {result.discovered} tagged posts")
+    _rule(f"Discovered {result.discovered} tagged posts for @{result.target}")
     typer.echo(f"  {'creator':<24} {'tier':<7} {'followers':>10} {'likes':>8} "
                f"{'cmts':>6}  campaign")
     typer.echo(f"  {'-' * 24} {'-' * 7} {'-' * 10} {'-' * 8} {'-' * 6}  {'-' * 18}")
@@ -212,6 +243,8 @@ def run(
     if result.quota_remaining is not None:
         limit = f" of {result.quota_limit}" if result.quota_limit else ""
         typer.echo(f"  API quota left     : {result.quota_remaining}{limit}")
+    if result.next_cursor:
+        typer.echo(f"\n  Next batch: --cursor {result.next_cursor}")
 
 
 @app.command()

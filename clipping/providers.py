@@ -72,7 +72,33 @@ SCRAPER_2025 = ProviderSpec(
     note="Paths confirmed live. 'posts' maps to reels only; photo posts are not reachable.",
 )
 
-PROVIDERS: tuple[ProviderSpec, ...] = (SOCIAL_API, SCRAPER_2025)
+# Current primary. Host, paths and parameter name all confirmed against a live
+# subscription. Unlike the Cloe social listing it exposes a general /userposts endpoint,
+# which is what the roster crawl needs.
+#
+# Its response shape is identical to SCRAPER_2025 ({"data": {"items": [...]},
+# "pagination_token": "..."}), so one normalizer handles both without branching.
+#
+# This API ignores count and limit parameters: asking for 20 still returns 21. The batch
+# size is therefore enforced after parsing, in pipeline.ingest.
+SCRAPER_20251 = ProviderSpec(
+    key="scraper_20251",
+    label="Instagram Scraper 2025",
+    host="instagram-scraper-20251.p.rapidapi.com",
+    signup_url="https://rapidapi.com/search/instagram-scraper-20251",
+    endpoints=(
+        EndpointSpec("profile", "/userinfo", {"username_or_id": "{handle}"}),
+        EndpointSpec("tagged", "/usertaggedposts", {"username_or_id": "{handle}"}),
+        EndpointSpec("posts", "/userposts", {"username_or_id": "{handle}"}),
+        EndpointSpec("post", "/postinfo", {"shortcode": "{shortcode}"}),
+    ),
+    note="Ignores count/limit; the 20-post batch size is applied after parsing.",
+)
+
+# How many tagged posts one execution processes. The API will not page for us.
+BATCH_SIZE = 20
+
+PROVIDERS: tuple[ProviderSpec, ...] = (SCRAPER_20251, SCRAPER_2025, SOCIAL_API)
 
 
 def by_key(key: str) -> ProviderSpec | None:

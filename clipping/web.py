@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from clipping import pipeline, sheets, store
 from clipping.config import ConfigError, load_campaigns, load_settings
-from clipping.providers import by_key
+from clipping.providers import BATCH_SIZE, by_key
 
 app = FastAPI(title="Clipping")
 
@@ -21,8 +21,11 @@ DEFAULT_FIXTURE = "tests/fixtures/scraper_2025/tagged.json"
 
 class RunRequest(BaseModel):
     mode: str = "fixture"          # "fixture" replays a saved page and costs nothing
+    target: str | None = None      # overrides BRAND_HANDLE, so any account can be tracked
     max_profiles: int = 5
-    provider: str = "scraper_2025"
+    batch_size: int = BATCH_SIZE
+    cursor: str | None = None
+    provider: str = "scraper_20251"
 
 
 @app.get("/api/state")
@@ -86,8 +89,16 @@ def run(req: RunRequest) -> JSONResponse:
         )
 
     try:
-        result = pipeline.ingest(settings, campaigns, spec, fixture=fixture,
-                                 max_profiles=req.max_profiles)
+        result = pipeline.ingest(
+            settings, campaigns, spec,
+            target=req.target,
+            fixture=fixture,
+            max_profiles=req.max_profiles,
+            batch_size=req.batch_size,
+            cursor=req.cursor,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception as exc:
         return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
 
@@ -191,11 +202,15 @@ a{color:var(--accent)}
 
   <div class="card">
     <div class="row">
+      <div><label>Target account</label><br>
+        <input id="target" type="text" placeholder="username" style="width:190px"></div>
       <div><label>Source</label><br>
         <select id="mode">
           <option value="fixture">Saved page (free)</option>
           <option value="live">Live API (spends quota)</option>
         </select></div>
+      <div><label>Batch size</label><br>
+        <input id="batch" type="number" min="1" max="50" value="20" style="width:90px"></div>
       <div><label>Creators to tier</label><br>
         <input id="maxp" type="number" min="1" max="50" value="5" style="width:90px"></div>
       <div style="align-self:flex-end"><button id="runBtn">Run</button></div>
@@ -240,6 +255,7 @@ async function load(){
   const s = await (await fetch('/api/state')).json();
   if(s.error){ banner(s.error,'err'); return; }
   $('brand').textContent = '@'+s.brand;
+  if(!$('target').value) $('target').placeholder = s.brand;   // default, still editable
   $('stats').innerHTML = [
     ['posts',s.counts.posts],['creators',s.counts.creators],
     ['metric rows',s.counts.metrics],['runs',s.counts.runs]
@@ -296,19 +312,27 @@ $('mode').onchange=()=>{
 };
 $('mode').onchange();
 
+let nextCursor = null;
+
 $('runBtn').onclick=async()=>{
   const live=$('mode').value==='live', n=+$('maxp').value;
+  const tgt=$('target').value.trim().replace(/^@/,'');
   const cost = (live?1:0)+n;
-  if(!confirm('This run will spend about '+cost+' API call(s). Continue?')) return;
+  // The newline below is double-escaped on purpose. This page lives inside a Python
+  // string, so a single escape would become a real line break and split the literal.
+  if(!confirm('Target: @'+(tgt||$('target').placeholder)
+    +'\\nThis run will spend about '+cost+' API call(s). Continue?')) return;
   $('runBtn').disabled=true; $('runBtn').textContent='Running...'; banner('','');
   try{
     const r = await (await fetch('/api/run',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mode:$('mode').value,max_profiles:n})})).json();
+      body:JSON.stringify({mode:$('mode').value, max_profiles:n,
+        target:tgt||null, batch_size:+$('batch').value, cursor:nextCursor})})).json();
     if(r.error){ banner(r.error,'err'); }
     else{
-      let m = 'Found '+r.discovered+' posts, tiered '+r.tiered+' creators, stored '
-        + r.stored + ' rows. Spent '+r.calls+' call(s).';
+      nextCursor = r.next_cursor || null;
+      let m = 'Target @'+r.target+': found '+r.discovered+' posts, tiered '+r.tiered
+        + ' creators, stored ' + r.stored + ' rows. Spent '+r.calls+' call(s).';
       if(r.skipped) m += ' '+r.skipped+' creators skipped for lack of a profile lookup.';
       banner(m, r.skipped? 'warn':'ok');
       if(r.quota_remaining!=null)

@@ -9,7 +9,7 @@ import httpx
 from clipping import normalize, store
 from clipping.config import Settings
 from clipping.matcher import match
-from clipping.providers import ProviderSpec
+from clipping.providers import BATCH_SIZE, ProviderSpec
 from clipping.tiering import classify
 
 QUOTA_HEADER = "X-RateLimit-Requests-Remaining"
@@ -18,6 +18,8 @@ LIMIT_HEADER = "X-RateLimit-Requests-Limit"
 
 @dataclass
 class RunResult:
+    target: str = ""
+    next_cursor: str | None = None
     rows: list[dict] = field(default_factory=list)
     discovered: int = 0
     tiered: int = 0
@@ -30,6 +32,8 @@ class RunResult:
 
     def as_dict(self) -> dict:
         return {
+            "target": self.target,
+            "next_cursor": self.next_cursor,
             "rows": self.rows,
             "discovered": self.discovered,
             "tiered": self.tiered,
@@ -53,11 +57,14 @@ class Fetcher:
         self.quota_limit: int | None = None
 
     def get(self, client: httpx.Client, capability: str, handle: str = "",
-            shortcode: str = "") -> dict:
+            shortcode: str = "", cursor: str | None = None) -> dict:
         endpoint = self.spec.endpoint(capability)
+        params = endpoint.query(handle, shortcode)
+        if cursor:
+            params["pagination_token"] = cursor
         response = client.get(
             f"https://{self.spec.host}{endpoint.path}",
-            params=endpoint.query(handle, shortcode),
+            params=params,
             headers={"x-rapidapi-key": self.key, "x-rapidapi-host": self.spec.host},
             timeout=30.0,
         )
@@ -81,25 +88,40 @@ def ingest(
     campaigns: list,
     spec: ProviderSpec,
     *,
+    target: str | None = None,
     fixture: str | None = None,
     max_profiles: int = 5,
+    batch_size: int = BATCH_SIZE,
+    cursor: str | None = None,
     dry_run: bool = False,
 ) -> RunResult:
-    """Discover tagged posts, tier their creators, attribute campaigns, store the result.
+    """Discover tagged posts for one target account, tier creators, attribute, store.
 
-    Follower counts are absent from the tagged response, so each creator costs one extra
+    target overrides the configured brand handle, so any account can be tracked at
+    runtime without editing configuration.
+
+    Exactly batch_size posts are processed per execution. The providers return a fixed
+    page of 21 and ignore count and limit parameters, so the cap is applied here after
+    parsing rather than asked of the API.
+
+    Follower counts are absent from every feed response, so each creator costs one extra
     profile call. That is the dominant expense, hence max_profiles.
     """
-    result = RunResult()
+    handle_target = (target or settings.brand_handle or "").lstrip("@").strip().casefold()
+    if not handle_target:
+        raise ValueError("No target account. Pass target, or set BRAND_HANDLE in .env.")
+
+    result = RunResult(target=handle_target)
     fetcher = Fetcher(spec, settings.rapidapi_keys[0])
 
     with httpx.Client() as client:
         if fixture:
             payload = json.loads(Path(fixture).read_text(encoding="utf-8"))
         else:
-            payload = fetcher.get(client, "tagged", handle=settings.brand_handle)
+            payload = fetcher.get(client, "tagged", handle=handle_target, cursor=cursor)
 
-        parsed = normalize.parse_feed(payload, "tagged")
+        parsed = normalize.parse_feed(payload, "tagged")[:batch_size]
+        result.next_cursor = normalize.next_cursor(payload)
         handles = list(dict.fromkeys(p.creator_handle for p, _ in parsed))
         result.discovered = len(parsed)
 

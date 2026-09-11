@@ -135,6 +135,28 @@ field inside the key file, and the dashboard displays it.
 Either way, enable the Google Sheets API in the Cloud project first. Export replaces two
 tabs, Posts and Campaigns, leaving anything else in the sheet alone.
 
+## Tracking an account
+
+The target account is chosen at runtime, three ways, in priority order:
+
+```bash
+.venv/Scripts/python.exe -m clipping run --target nike      # 1. flag
+BRAND_HANDLE=nike .venv/Scripts/python.exe -m clipping run  # 2. environment
+.venv/Scripts/python.exe -m clipping run                    # 3. prompts if neither set
+```
+
+The dashboard has a target field for the same purpose. A leading `@` and any casing are
+accepted and normalised.
+
+**Batch size.** One execution processes 20 tagged posts. The providers return a fixed page
+of 21 and ignore `count` and `limit` parameters, verified against the live API, so the cap
+is applied after parsing rather than requested. Each run prints a `--cursor` token; pass it
+back to fetch the next 20.
+
+```bash
+.venv/Scripts/python.exe -m clipping run --target nike --cursor <token from last run>
+```
+
 ## Checking access
 
 `doctor` reports configuration health and probes every declared endpoint, saying per
