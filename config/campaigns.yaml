@@ -8,6 +8,18 @@ campaigns:
     end: 2026-04-30
     priority: 10
 
+  # Seen on 8 of the first 21 tagged posts, usually alongside product tags such as
+  # #sunwater and #sorbetcream. Those are product names rather than campaign tags, so
+  # they are deliberately excluded: they would match any organic post about the product.
+  # The window is wide because only one day of posts has been sampled so far. Narrow it
+  # once the real campaign dates are known.
+  - id: iunik_x_yesstyle
+    name: "IUNIK x YesStyle"
+    hashtags: ["iunikxyesstyle"]
+    start: 2026-01-01
+    end: 2026-12-31
+    priority: 20
+
   - id: always_on_2026
     name: "Always-On Ambassadors"
     hashtags: ["iunik", "iunikofficial"]
