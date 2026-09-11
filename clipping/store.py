@@ -1,9 +1,9 @@
 """SQLite persistence. Posts are deduplicated; metrics and follower counts accumulate."""
 
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 
-from clipping.matcher import UNATTRIBUTED
+from clipping.matcher import UNATTRIBUTED, match
 from clipping.models import Creator, Metrics, Post, to_iso, utcnow
 from clipping.tiering import classify
 
@@ -258,6 +258,45 @@ def finish_run(
                            error_text = ? WHERE id = ?""",
         (to_iso(now or utcnow()), status, posts_found, posts_new, error_text, run_id),
     )
+
+
+def reattribute(conn: sqlite3.Connection, campaigns, dry_run: bool = False) -> list[dict]:
+    """Recompute every post's campaign from its stored hashtags.
+
+    Costs no API calls, because all hashtags are kept at ingestion, not just the ones
+    that matched a campaign at the time. That is what lets a campaign defined today
+    claim posts collected months ago.
+    """
+    rows = conn.execute(
+        """
+        SELECT p.shortcode, p.creator_handle, p.taken_at, p.campaign_id,
+               (SELECT GROUP_CONCAT(hashtag, ' ') FROM post_hashtags
+                 WHERE shortcode = p.shortcode) AS hashtags
+        FROM posts p
+        """
+    ).fetchall()
+
+    changes = []
+    for row in rows:
+        tags = (row["hashtags"] or "").split()
+        new = match(tags, date.fromisoformat(row["taken_at"][:10]), campaigns)
+        if new == row["campaign_id"]:
+            continue
+        changes.append({
+            "shortcode": row["shortcode"],
+            "creator": row["creator_handle"],
+            "before": row["campaign_id"],
+            "after": new,
+        })
+        if not dry_run:
+            conn.execute(
+                "UPDATE posts SET campaign_id = ? WHERE shortcode = ?",
+                (new, row["shortcode"]),
+            )
+
+    if changes and not dry_run:
+        conn.commit()
+    return changes
 
 
 REPORT_COLUMNS = (

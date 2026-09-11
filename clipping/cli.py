@@ -6,7 +6,7 @@ from pathlib import Path
 import typer
 
 from clipping import doctor as doctor_mod
-from clipping import pipeline
+from clipping import pipeline, store
 from clipping.config import ConfigError, load_campaigns, load_roster, load_settings
 from clipping.providers import PROVIDERS, by_key
 
@@ -212,6 +212,39 @@ def run(
     if result.quota_remaining is not None:
         limit = f" of {result.quota_limit}" if result.quota_limit else ""
         typer.echo(f"  API quota left     : {result.quota_remaining}{limit}")
+
+
+@app.command()
+def reattribute(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would change without writing."
+    ),
+) -> None:
+    """Recompute campaigns for stored posts after editing campaigns.yaml. No API calls."""
+    try:
+        campaigns = load_campaigns()
+    except ConfigError as exc:
+        typer.echo(f"campaigns.yaml: {exc}")
+        raise typer.Exit(1)
+
+    settings = load_settings()
+    conn = store.connect(settings.db_path)
+    try:
+        changes = store.reattribute(conn, campaigns, dry_run=dry_run)
+        total = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+    finally:
+        conn.close()
+
+    if not changes:
+        typer.echo(f"No changes. All {total} stored post(s) already match campaigns.yaml.")
+        return
+
+    _rule(f"{len(changes)} of {total} post(s) would change" if dry_run
+          else f"{len(changes)} of {total} post(s) re-attributed")
+    for c in changes:
+        typer.echo(f"  @{c['creator']:<24} {c['before']:<18} -> {c['after']}")
+    if dry_run:
+        typer.echo("\nNothing written. Re-run without --dry-run to apply.")
 
 
 if __name__ == "__main__":

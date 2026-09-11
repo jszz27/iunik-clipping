@@ -1,9 +1,10 @@
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from clipping import store
+from clipping.matcher import Campaign
 from clipping.models import Creator, Metrics, Post
 
 NOW = datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
@@ -169,6 +170,72 @@ def test_posts_past_the_freeze_horizon_are_dropped_and_frozen(conn, creator):
     assert store.freeze_stale_posts(conn, now=NOW) == 1
     assert conn.execute("SELECT metrics_frozen FROM posts").fetchone()["metrics_frozen"] == 1
     assert store.freeze_stale_posts(conn, now=NOW) == 0  # idempotent
+
+
+# --- reattribution ---
+
+def campaign(cid, tags, priority=0):
+    return Campaign(id=cid, name=cid, hashtags=frozenset(tags),
+                    start=date(2026, 1, 1), end=date(2026, 12, 31), priority=priority)
+
+
+COLLAB = campaign("iunik_x_yesstyle", {"iunikxyesstyle"}, priority=20)
+ALWAYS_ON = campaign("always_on", {"iunik"}, priority=1)
+
+
+@pytest.fixture
+def seeded(conn, creator):
+    """Two posts stored before any campaign existed, so both start unattributed."""
+    store.upsert_creator(conn, creator, now=NOW)
+    for code, tags in (("ABC123", ["iunikxyesstyle", "iunik"]), ("OLD999", ["kbeauty"])):
+        store.upsert_post(conn, a_post(shortcode=code, hashtags=tags),
+                          follower_count=5_000, now=NOW)
+    return conn
+
+
+def test_a_new_campaign_claims_historical_posts(seeded):
+    # The point of storing every hashtag: a campaign defined today can reach back over
+    # posts collected before it existed, without re-fetching anything.
+    changes = store.reattribute(seeded, [COLLAB])
+    assert len(changes) == 1
+    assert changes[0]["before"] == "unattributed"
+    assert changes[0]["after"] == "iunik_x_yesstyle"
+    assert seeded.execute(
+        "SELECT campaign_id FROM posts WHERE shortcode='ABC123'"
+    ).fetchone()["campaign_id"] == "iunik_x_yesstyle"
+
+
+def test_priority_decides_when_a_post_matches_two_campaigns(seeded):
+    store.reattribute(seeded, [COLLAB, ALWAYS_ON])
+    assert seeded.execute(
+        "SELECT campaign_id FROM posts WHERE shortcode='ABC123'"
+    ).fetchone()["campaign_id"] == "iunik_x_yesstyle"
+
+
+def test_posts_matching_nothing_stay_unattributed(seeded):
+    store.reattribute(seeded, [COLLAB])
+    assert seeded.execute(
+        "SELECT campaign_id FROM posts WHERE shortcode='OLD999'"
+    ).fetchone()["campaign_id"] == "unattributed"
+
+
+def test_reattribute_is_idempotent(seeded):
+    assert len(store.reattribute(seeded, [COLLAB])) == 1
+    assert store.reattribute(seeded, [COLLAB]) == []
+
+
+def test_removing_a_campaign_releases_its_posts(seeded):
+    store.reattribute(seeded, [COLLAB])
+    changes = store.reattribute(seeded, [])
+    assert changes[0]["after"] == "unattributed"
+
+
+def test_dry_run_reports_without_writing(seeded):
+    changes = store.reattribute(seeded, [COLLAB], dry_run=True)
+    assert len(changes) == 1
+    assert seeded.execute(
+        "SELECT campaign_id FROM posts WHERE shortcode='ABC123'"
+    ).fetchone()["campaign_id"] == "unattributed"
 
 
 # --- run bookkeeping ---

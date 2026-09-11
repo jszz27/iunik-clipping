@@ -92,7 +92,13 @@ roster:
 ```
 
 Every post stores all of its hashtags, not just campaign ones, so a campaign launched next
-month can claim historical posts without spending any API calls.
+month can claim historical posts without spending any API calls. After editing
+`campaigns.yaml`, apply it to what is already stored:
+
+```bash
+.venv/Scripts/python.exe -m clipping reattribute --dry-run   # preview
+.venv/Scripts/python.exe -m clipping reattribute             # apply
+```
 
 ## The dashboard
 
