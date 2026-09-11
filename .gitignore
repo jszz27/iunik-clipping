@@ -15,3 +15,4 @@ tests/fixtures/
 img/
 google_token.json
 oauth_client.json
+client_secret*.json
