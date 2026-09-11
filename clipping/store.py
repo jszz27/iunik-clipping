@@ -260,6 +260,67 @@ def finish_run(
     )
 
 
+REPORT_COLUMNS = (
+    "creator", "tier", "followers", "campaign", "likes", "comments",
+    "hashtags", "media_type", "posted_at", "url",
+)
+
+
+def report_rows(conn: sqlite3.Connection) -> list[dict]:
+    """One row per post, carrying its most recent metrics. The shape the report uses."""
+    rows = conn.execute(
+        """
+        SELECT p.creator_handle, p.tier_at_post, p.creator_followers_at_post,
+               p.campaign_id, p.media_type, p.taken_at, p.url, p.shortcode,
+               m.like_count, m.comment_count,
+               (SELECT GROUP_CONCAT(hashtag, ' ') FROM post_hashtags
+                 WHERE shortcode = p.shortcode) AS hashtags
+        FROM posts p
+        LEFT JOIN metrics m ON m.shortcode = p.shortcode
+             AND m.captured_at = (SELECT MAX(captured_at) FROM metrics
+                                  WHERE shortcode = p.shortcode)
+        ORDER BY m.like_count DESC, p.taken_at DESC
+        """
+    ).fetchall()
+
+    return [
+        {
+            "creator": r["creator_handle"],
+            "tier": r["tier_at_post"],
+            "followers": r["creator_followers_at_post"],
+            "campaign": r["campaign_id"],
+            "likes": r["like_count"] or 0,
+            "comments": r["comment_count"] or 0,
+            "hashtags": r["hashtags"] or "",
+            "media_type": r["media_type"] or "",
+            # Date only, matching what a live run reports, so the two cannot disagree.
+            "posted_at": (r["taken_at"] or "")[:10],
+            "url": r["url"],
+        }
+        for r in rows
+    ]
+
+
+def campaign_totals(conn: sqlite3.Connection) -> list[dict]:
+    """Per-campaign rollup, for the summary tab and the dashboard."""
+    rows = conn.execute(
+        """
+        SELECT p.campaign_id AS campaign, COUNT(*) AS posts,
+               COUNT(DISTINCT p.creator_handle) AS creators,
+               SUM(p.creator_followers_at_post)  AS reach,
+               SUM(COALESCE(m.like_count, 0))    AS likes,
+               SUM(COALESCE(m.comment_count, 0)) AS comments
+        FROM posts p
+        LEFT JOIN metrics m ON m.shortcode = p.shortcode
+             AND m.captured_at = (SELECT MAX(captured_at) FROM metrics
+                                  WHERE shortcode = p.shortcode)
+        GROUP BY p.campaign_id
+        ORDER BY posts DESC
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def log_api_call(
     conn: sqlite3.Connection,
     provider: str,

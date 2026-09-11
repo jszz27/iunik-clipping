@@ -94,6 +94,34 @@ roster:
 Every post stores all of its hashtags, not just campaign ones, so a campaign launched next
 month can claim historical posts without spending any API calls.
 
+## The dashboard
+
+```bash
+.venv/Scripts/python.exe -m pip install -e ".[web,sheets]"
+.venv/Scripts/python.exe -m clipping serve
+```
+
+Then open http://127.0.0.1:8000. Run the pipeline, sort and filter the results, and push
+them to Google Sheets. It binds to localhost only and holds a live API key, so do not
+expose it. The key is never sent to the browser.
+
+Source can be a saved page, which costs nothing, or the live API. Either way, tiering a
+creator costs one call each, so the run button says what it will spend before it spends it.
+
+### Google Sheets export
+
+Three things are needed, all in `.env`:
+
+1. `GOOGLE_SHEET_ID`, the long id in the sheet's URL between `/d/` and `/edit`.
+2. `GOOGLE_SERVICE_ACCOUNT_JSON`, a path to a service account key downloaded from a
+   Google Cloud project with the Sheets API enabled.
+3. The sheet shared, with Editor access, with the service account's own email address.
+
+That third step is the one people miss. The address is inside the JSON key file as
+`client_email`, and the dashboard shows it. Without it every export fails.
+
+Export replaces two tabs, Posts and Campaigns, leaving anything else in the sheet alone.
+
 ## Checking access
 
 `doctor` reports configuration health and probes every declared endpoint, saying per

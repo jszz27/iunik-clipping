@@ -1,18 +1,14 @@
 """Command line entry point."""
 
-import json
 import sys
 from pathlib import Path
 
-import httpx
 import typer
 
 from clipping import doctor as doctor_mod
-from clipping import normalize, store
+from clipping import pipeline
 from clipping.config import ConfigError, load_campaigns, load_roster, load_settings
-from clipping.matcher import match
 from clipping.providers import PROVIDERS, by_key
-from clipping.tiering import classify
 
 app = typer.Typer(add_completion=False, help="Instagram influencer clipping and tracking.")
 
@@ -145,18 +141,20 @@ def doctor(
     raise typer.Exit(1)
 
 
-def _get(client: httpx.Client, spec, capability: str, key: str, handle: str = "",
-         shortcode: str = "") -> dict:
-    """One provider call. The full client with key rotation and caching is still to come."""
-    endpoint = spec.endpoint(capability)
-    response = client.get(
-        f"https://{spec.host}{endpoint.path}",
-        params=endpoint.query(handle, shortcode),
-        headers={"x-rapidapi-key": key, "x-rapidapi-host": spec.host},
-        timeout=30.0,
-    )
-    response.raise_for_status()
-    return response.json()
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind address. Keep it local."),
+    port: int = typer.Option(8000, help="Port to listen on."),
+) -> None:
+    """Open the dashboard in a browser: run the pipeline, inspect it, export to Sheets."""
+    try:
+        import uvicorn
+    except ImportError:
+        typer.echo('Web UI not installed. Run: pip install -e ".[web]"')
+        raise typer.Exit(1)
+
+    typer.echo(f"Dashboard at http://{host}:{port}  (Ctrl+C to stop)")
+    uvicorn.run("clipping.web:app", host=host, port=port, log_level="warning")
 
 
 @app.command()
@@ -178,73 +176,42 @@ def run(
         typer.echo(f"Unknown provider '{provider}'.")
         raise typer.Exit(1)
 
-    key = settings.rapidapi_keys[0]
-    calls = 0
+    if fixture:
+        typer.echo(f"Replaying {fixture}, no API call spent for the tagged page.")
 
-    with httpx.Client() as client:
-        if fixture:
-            payload = json.loads(Path(fixture).read_text(encoding="utf-8"))
-            typer.echo(f"Replaying {fixture}, no API call spent.")
-        else:
-            payload = _get(client, spec, "tagged", key, handle=settings.brand_handle)
-            calls += 1
+    result = pipeline.ingest(
+        settings, campaigns, spec,
+        fixture=str(fixture) if fixture else None,
+        max_profiles=max_profiles,
+        dry_run=dry_run,
+    )
 
-        parsed = normalize.parse_feed(payload, "tagged")
-        handles = list(dict.fromkeys(p.creator_handle for p, _ in parsed))
-        _rule(f"Discovered {len(parsed)} tagged posts from {len(handles)} creators")
-
-        # Follower counts are absent from the tagged response, so tiering costs one
-        # profile call per creator. That is the dominant expense in the whole pipeline.
-        profiles: dict[str, object] = {}
-        for handle in handles[:max_profiles]:
-            try:
-                profiles[handle] = normalize.parse_profile(
-                    _get(client, spec, "profile", key, handle=handle)
-                )
-                calls += 1
-            except (httpx.HTTPError, ValueError) as exc:
-                typer.echo(f"  could not read @{handle}: {type(exc).__name__}")
-
-    skipped = len(handles) - len(profiles)
-
-    conn = None if dry_run else store.connect(settings.db_path)
-    run_id = None if conn is None else store.start_run(conn)
-    stored = 0
-
+    _rule(f"Discovered {result.discovered} tagged posts")
     typer.echo(f"  {'creator':<24} {'tier':<7} {'followers':>10} {'likes':>8} "
                f"{'cmts':>6}  campaign")
     typer.echo(f"  {'-' * 24} {'-' * 7} {'-' * 10} {'-' * 8} {'-' * 6}  {'-' * 18}")
-
-    for post, metrics in parsed:
-        creator = profiles.get(post.creator_handle)
-        if creator is None:
-            continue  # no follower count, so the tier would be a guess
-        campaign = match(post.hashtags, post.taken_at.date(), campaigns)
+    for r in result.rows:
         typer.echo(
-            f"  @{post.creator_handle:<23} {classify(creator.follower_count).value:<7} "
-            f"{creator.follower_count:>10,} {metrics.like_count:>8,} "
-            f"{metrics.comment_count:>6,}  {campaign}"
+            f"  @{r['creator']:<23} {r['tier']:<7} {r['followers']:>10,} "
+            f"{r['likes']:>8,} {r['comments']:>6,}  {r['campaign']}"
         )
-        if conn is not None:
-            store.upsert_creator(conn, creator)
-            store.upsert_post(conn, post, follower_count=creator.follower_count,
-                              campaign_id=campaign)
-            store.record_metrics(conn, post.shortcode, metrics)
-            stored += 1
 
-    if conn is not None:
-        store.finish_run(conn, run_id, posts_found=len(parsed), posts_new=stored)
-        conn.commit()
+    for err in result.errors:
+        typer.echo(f"  could not read {err}")
 
     _rule("Summary")
-    typer.echo(f"  API calls spent    : {calls}")
-    typer.echo(f"  posts discovered   : {len(parsed)}")
-    typer.echo(f"  creators tiered    : {len(profiles)}")
-    if skipped:
+    typer.echo(f"  API calls spent    : {result.calls}")
+    typer.echo(f"  posts discovered   : {result.discovered}")
+    typer.echo(f"  creators tiered    : {result.tiered}")
+    if result.skipped:
         typer.echo(
-            f"  creators skipped   : {skipped} (no profile lookup, so no follower count)"
+            f"  creators skipped   : {result.skipped} "
+            "(no profile lookup, so no follower count)"
         )
-    typer.echo(f"  rows written       : {'0 (dry run)' if dry_run else stored}")
+    typer.echo(f"  rows written       : {'0 (dry run)' if dry_run else result.stored}")
+    if result.quota_remaining is not None:
+        limit = f" of {result.quota_limit}" if result.quota_limit else ""
+        typer.echo(f"  API quota left     : {result.quota_remaining}{limit}")
 
 
 if __name__ == "__main__":

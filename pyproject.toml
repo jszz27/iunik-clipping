@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "respx>=0.21"]
 sheets = ["gspread>=6.1", "google-auth>=2.30"]
+web = ["fastapi>=0.111", "uvicorn>=0.30"]
 
 [project.scripts]
 clipping = "clipping.cli:app"
